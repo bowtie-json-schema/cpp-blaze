@@ -19,3 +19,5 @@ target_link_libraries(bowtie_blaze
   PRIVATE sourcemeta::blaze::compiler)
 target_link_libraries(bowtie_blaze
   PRIVATE sourcemeta::blaze::evaluator)
+target_link_libraries(bowtie_blaze
+  PRIVATE sourcemeta::blaze::output)
