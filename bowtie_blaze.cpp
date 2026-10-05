@@ -1,4 +1,5 @@
 #include <sourcemeta/core/json.h>
+#include <sourcemeta/core/jsonpointer.h>
 #include <sourcemeta/core/jsonschema.h>
 
 #include <sourcemeta/blaze/compiler.h>
@@ -30,16 +31,24 @@ auto is_annotation_collection(const std::string_view keyword) -> bool {
          ANNOTATION_COLLECTIONS.cend();
 }
 
-auto keyword_location(const std::string &location) -> std::string {
-  const auto fragment{location.find('#')};
-  return fragment == std::string::npos ? "#" + location
-                                       : location.substr(fragment);
+auto keyword_location(const sourcemeta::core::SchemaFrame &frame,
+                      const std::string &location,
+                      const sourcemeta::core::WeakPointer &fallback)
+    -> std::string {
+  const auto match{frame.locations().find(
+      {sourcemeta::core::SchemaReferenceType::Static, location})};
+  if (match != frame.locations().cend()) {
+    return "#" + sourcemeta::core::to_string(match->second.pointer);
+  }
+  return "#" + sourcemeta::core::to_string(fallback);
 }
 
-auto keyword_name(const std::string &location) -> std::string {
-  const auto segment{location.rfind('/')};
-  return segment == std::string::npos ? std::string{}
-                                      : location.substr(segment + 1);
+auto keyword_name(const sourcemeta::core::WeakPointer &pointer)
+    -> std::string {
+  if (pointer.empty()) {
+    return {};
+  }
+  return std::string{pointer.back().to_property()};
 }
 
 }
@@ -135,9 +144,16 @@ int main() {
       try {
         const auto mode{output == Output::Annotations ? Mode::Exhaustive
                                                       : Mode::FastValidation};
-        const auto schema_template{compile(
-            message.at("case").at("schema"), schema_walker, resolver,
-            default_schema_compiler, mode, default_dialect)};
+        const auto &schema{message.at("case").at("schema")};
+        const auto schema_template{compile(schema, schema_walker, resolver,
+                                            default_schema_compiler, mode,
+                                            default_dialect)};
+
+        sourcemeta::core::SchemaFrame frame{
+            sourcemeta::core::SchemaFrame::Mode::Locations};
+        if (output == Output::Annotations) {
+          frame.analyse(schema, schema_walker, resolver, default_dialect);
+        }
 
         auto response{JSON::make_object()};
         response.assign("seq", message.at("seq"));
@@ -164,9 +180,10 @@ int main() {
           auto annotations{JSON::make_array()};
           if (valid) {
             for (const auto &entry : collected.annotations()) {
-              const auto location{
-                  keyword_location(entry.first.schema_location.get())};
-              const auto keyword{keyword_name(location)};
+              const auto location{keyword_location(
+                  frame, entry.first.schema_location.get(),
+                  entry.first.evaluate_path)};
+              const auto keyword{keyword_name(entry.first.evaluate_path)};
               const auto &values{entry.second};
 
               auto annotation{JSON::make_object()};
